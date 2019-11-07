@@ -11,10 +11,36 @@ class WebsocketConnection:
 
     header, body = self.get_payload(self.conn)
     if (self.validate_opening(header)):
-      print(header, '\n\n', body)
+      parsed_header = self.parse_header(header)
+      print(parsed_header)
+      self.send_handshake(parsed_header)
     else:
       print('sending 400')
       self.send_400()
+
+  def parse_header(self, header):
+    parsed_header = {}
+    parsed_header['Endpoint'] = re.findall(r'GET (/[\w/]*) HTTP/1\.1', header[0])[0]
+
+    fields = ['Host', 'Sec-WebSocket-Key', 'Origin', 'Sec-WebSocket-Protocol', 'Sec-WebSocket-Version']
+
+    for line in header[1:]:
+      for i in range(len(fields)):
+        if (re.match(r'(' + re.escape(fields[i]) + r')' + r': (.+)', line)):
+          key_field, val_field = re.findall(r'([\w\-]+): (.+)', line)[0]
+          parsed_header[key_field] = val_field
+    
+    return parsed_header
+
+  def send_handshake(self, parsed_header):
+    response = ("HTTP/1.1 101 Switching Protocols\r\n" +
+                "Upgrade: websocket\r\n" +
+                "Connection: Upgrade\r\n" +
+                "Sec-WebSocket-Accept: "+ parsed_header['Sec-WebSocket-Key'] +"=" + WS_MAGIC_STRING + "\r\n" +
+                "Sec-WebSocket-Protocol: "+ parsed_header['Sec-WebSocket-Protocol'] +"\r\n" + 
+                "\r\n")
+
+    self.conn.send(response.encode())
   
   def send_400(self):
     response = ("HTTP/1.1 400 Bad Request\r\n" +
@@ -50,7 +76,7 @@ class WebsocketConnection:
   def validate_opening(self, header):
     header_check = [False] * 4
     for line in header:
-      if (re.match(r'GET /\w* HTTP\/1\.1', line)):
+      if (re.match(r'GET /\w* HTTP/1\.1', line)):
         header_check[0] = True
       if (line == 'Upgrade: websocket'):
         header_check[1] = True
