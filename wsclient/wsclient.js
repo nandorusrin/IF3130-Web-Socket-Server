@@ -1,4 +1,4 @@
-var socket = new WebSocket("ws://127.0.0.1:4567")
+var socket = new WebSocket("ws://e9295051.ngrok.io")
 var dataBlob;
 socket.onopen = function(event) {
   console.log('Connection opened', event)
@@ -8,7 +8,7 @@ socket.onmessage = function(event) {
   var data = event.data
   console.log('on message', data)
   if (data instanceof Blob) {
-    socket.send(data.slice(200))
+    socket.send(data)
   }
 }
 
