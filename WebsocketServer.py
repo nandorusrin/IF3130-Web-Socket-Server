@@ -4,6 +4,7 @@ import threading
 import time
 import struct
 import os
+import sys
 from hashlib import sha1, md5
 from base64 import b64encode
 from frame import Frame
@@ -214,9 +215,9 @@ class WebsocketConnection(threading.Thread):
     pass
 
 class WebsocketServer:
-  def __init__(self, port= 4567, host='localhost'):
-    self.port = port
+  def __init__(self, host, port):
     self.host = host
+    self.port = port
     self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
   
@@ -233,7 +234,12 @@ class WebsocketServer:
       ws_conn.start()
 
 def main():
-  ws_server = WebsocketServer()
+  host = '127.0.0.1'; port = 4567
+  if (len(sys.argv) >= 3):
+    host = sys.argv[1]
+    port = int(sys.argv[2])
+  
+  ws_server = WebsocketServer(host, port)
   ws_server.start_server()
   while (True):
     ws_server.accept_connection()
