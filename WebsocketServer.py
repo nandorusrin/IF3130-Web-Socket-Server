@@ -1,5 +1,8 @@
 import socket
 import re
+from hashlib import sha1
+from base64 import b64encode
+from frame import Frame
 
 MAX_DATA_SIZE = 1024
 WS_MAGIC_STRING = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
@@ -9,14 +12,28 @@ class WebsocketConnection:
     self.conn = conn
     self.hostaddr, self.port = self.conn.getpeername()
 
-    header, body = self.get_payload(self.conn)
+    header, body = self.get_parse_first_request()
     if (self.validate_opening(header)):
       parsed_header = self.parse_header(header)
       print(parsed_header)
       self.send_handshake(parsed_header)
+      self.maintain_communication()
     else:
       print('sending 400')
       self.send_400()
+      self.connection_failed()
+  
+  def maintain_communication(self):
+    while(True):
+      message = self.conn.recv(MAX_DATA_SIZE)
+      parsed_msg = Frame.toUnframe(message)
+      parsed_msg.toPrint()
+      print(parsed_msg.getPayload())
+    
+
+  
+  def connection_failed(self):
+    self.conn.close()
 
   def parse_header(self, header):
     parsed_header = {}
@@ -32,13 +49,20 @@ class WebsocketConnection:
     
     return parsed_header
 
+  def generate_ws_accept(self, sec_ws_key):
+    digest_obj = sha1((sec_ws_key + WS_MAGIC_STRING).encode())
+    return b64encode(digest_obj.digest()).decode()
+
   def send_handshake(self, parsed_header):
+    ws_accept = self.generate_ws_accept(parsed_header['Sec-WebSocket-Key'])
     response = ("HTTP/1.1 101 Switching Protocols\r\n" +
                 "Upgrade: websocket\r\n" +
                 "Connection: Upgrade\r\n" +
-                "Sec-WebSocket-Accept: "+ parsed_header['Sec-WebSocket-Key'] +"=" + WS_MAGIC_STRING + "\r\n" +
-                "Sec-WebSocket-Protocol: "+ parsed_header['Sec-WebSocket-Protocol'] +"\r\n" + 
-                "\r\n")
+                "Sec-WebSocket-Accept: "+ ws_accept +"\r\n")
+    if 'Sec-WebSocket-Protocol' in parsed_header:
+      response += "Sec-WebSocket-Protocol: "+ parsed_header['Sec-WebSocket-Protocol'] +"\r\n"
+    
+    response += "\r\n"
 
     self.conn.send(response.encode())
   
@@ -50,7 +74,7 @@ class WebsocketConnection:
                 "Incorrect request")
     self.conn.send(response.encode())
   
-  def get_payload(self, conn):
+  def get_parse_first_request(self):
     payload = (self.conn.recv(MAX_DATA_SIZE)).decode().split('\r\n')
     
     # parse header & body
@@ -86,6 +110,13 @@ class WebsocketConnection:
         header_check[3] = True
     
     return all(header_check)
+
+  def close_connection(self):
+    #  TODO: The server MUST close the connection upon receiving a
+    #  frame that is not masked
+    #   In this case, a server MAY send a Close
+    #  frame with a status code of 1002 (protocol error)
+    pass
 
 class WebsocketServer:
   def __init__(self, port= 4567, host='localhost'):

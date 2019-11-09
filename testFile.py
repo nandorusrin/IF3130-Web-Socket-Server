@@ -2,10 +2,10 @@ import os
 import random
 from frame import Frame
 
-stringTest = open("125.txt", "rb").read()
+# stringTest = open("125.txt", "rb").read()
 
 # testing payload length to be exact number as printed string
-binaryTest = open("0", "rb").read()
+# binaryTest = open("0", "rb").read()
 
 # statInfo = os.stat("126.txt")
 # print(len(stringTest)/1000, ' ', statInfo.st_size)
@@ -24,9 +24,15 @@ binaryTest = open("0", "rb").read()
 # print(bin(y), bin(z))
 # print(chr(z))
 
-objFrame = Frame(1, Frame.bin_frame, stringTest, -1)
+objFrame = Frame(1, Frame.bin_frame, b'halo', _masked=True)
 
+print('objFrame')
 objFrame.toPrint()
-binFrame= objFrame.toFrame(True)
+print(objFrame.getPayload())
+binFrame= objFrame.toFrame()
+print()
+
+print('clsFrame')
 clsFrame = Frame.toUnframe(binFrame)
 clsFrame.toPrint()
+print(clsFrame.getPayload())
