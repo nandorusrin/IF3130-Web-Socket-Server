@@ -83,7 +83,7 @@ class Frame:
 		# concatenate FIN, RSV1, RSV2, RSV3, and opcode
 		# assuming RSV1, RSV2, RSV3 = 0 all
 		concat_1 = (self.FIN << 7) | self.opcode
-		print(self.FIN, self.opcode)
+		# print(self.FIN, self.opcode)
 		concat_1 = bytearray(struct.pack('>B', concat_1))
 
 		result = concat_1
@@ -94,19 +94,19 @@ class Frame:
 
 		if (self.payload_len >= 0 and self.payload_len <= 125):
 			concat_2 = concat_2 | self.payload_len
-			print(self.MASK, self.payload_len)
+			# print(self.MASK, self.payload_len)
 			concat_2 = bytearray(struct.pack('>B', concat_2))
 
 		elif (self.payload_len <= Frame.SIZE_UINT16):
 			concat_2 = concat_2 | 0x7e
-			print(self.MASK, self.payload_len)
+			# print(self.MASK, self.payload_len)
 			concat_2 = bytearray(struct.pack('>B', concat_2))
 			concat_2_ext = bytearray(struct.pack('>H', self.payload_len))
 			concat_2 = concat_2 + concat_2_ext
 
 		elif (self.payload_len <= Frame.SIZE_UINT64):
 			concat_2 = concat_2 | 0x7f
-			print(self.MASK, self.payload_len)
+			# print(self.MASK, self.payload_len)
 			concat_2 = bytearray(struct.pack('>B', concat_2))
 			concat_2_ext = bytearray(struct.pack('>Q', self.payload_len))
 			concat_2 = concat_2 + concat_2_ext
@@ -127,7 +127,7 @@ class Frame:
 			result += concat_4
 		else:
 			concat_4 =  self.payload
-			print(concat_4[2:10])
+			# print(concat_4[2:10])
 			if (self.opcode == Frame.txt_frame):
 				concat_4 = concat_4.encode(encoding = 'UTF-8', errors='strict')
 			result += concat_4
@@ -143,7 +143,7 @@ class Frame:
 		concat_1 = bytearray(recv)[0]
 		_FIN = concat_1 >> 7
 		_opcode = concat_1 & 0xf
-		print(_FIN, _opcode)
+		# print(_FIN, _opcode)
 
 		# Unpack MASK and Payload_len
 		concat_2 = bytearray(recv)[1]

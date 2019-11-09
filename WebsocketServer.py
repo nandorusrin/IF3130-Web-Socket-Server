@@ -24,13 +24,19 @@ class WebsocketConnection:
       self.connection_failed()
   
   def maintain_communication(self):
-    while(True):
-      message = self.conn.recv(MAX_DATA_SIZE)
-      parsed_msg = Frame.toUnframe(message)
-      parsed_msg.toPrint()
-      print(parsed_msg.getPayload())
-    
+    # while(True):
+    message = self.conn.recv(MAX_DATA_SIZE)
+    parsed_msg = Frame.toUnframe(message)
+    parsed_msg.toPrint()
+    print(parsed_msg.getPayload())
 
+    # send dummy
+    dummy_payload = 'Data from server'
+    objFrame = Frame(1, Frame.txt_frame, dummy_payload, _masked=False)
+    ret = self.conn.send(objFrame.toFrame())
+    print('ret sent', ret)
+    while (True):
+      pass
   
   def connection_failed(self):
     self.conn.close()
