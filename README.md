@@ -2,11 +2,15 @@
 OK Boomer!
 
 # Petunjuk Penggunaan Program
-Jalankan WebsocketServer dengan perintah:
+1. Jalankan WebsocketServer dengan perintah:
 `python WebsocketServer.py <host> <port>`
 ```
 Contoh:
 python WebsocketServer.py 127.0.0.1 4567
+```
+2. Jalankan Ngrok untuk Websocket
+```
+ngrok http 8000
 ```
 
 # Pembagian Tugas
