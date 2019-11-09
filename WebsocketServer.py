@@ -11,6 +11,7 @@ from frame import Frame
 
 MAX_DATA_SIZE = 1024
 WS_MAGIC_STRING = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+SUBMISSION_CHECKSUM = md5(open('ok_boomer.zip', "rb").read()).hexdigest()
 
 class COMMAND_CONTEXT:
   NONE = 0
@@ -55,44 +56,25 @@ class WebsocketConnection(threading.Thread):
         pong_msg = Frame(1, Frame.pong_frame, b'', False, parsed_msg.rsv1, parsed_msg.rsv2, parsed_msg.rsv3)
         self.conn.send(pong_msg.toFrame())
       else:
-        if (parsed_msg.opcode == Frame.txt_frame): # accept new message
-          payload = parsed_msg.getPayload()
-
+        payload = parsed_msg.getPayload()
+        if (parsed_msg.opcode == Frame.txt_frame): # accept new text message
           if (payload[0] == '!'): # getting first command message
             if (payload[:5] == '!echo'):
               context = COMMAND_CONTEXT.ECHO
-              payload_context += payload[6:]
+              payload_context = payload[6:]
             elif (payload[:11] == '!submission'):
               context = COMMAND_CONTEXT.SUBMISSION
-            elif (payload[:6] == '!check'):
-              context = COMMAND_CONTEXT.CHECK
-              payload_context += payload[7:]
 
-          if (parsed_msg.FIN == 1): # is the final message
+          if (parsed_msg.FIN == 1): # first and last message
             # execute & send reply based on command
             if (context == COMMAND_CONTEXT.ECHO):
-              echo_reply = ''
-              if (len(payload_context) <= Frame.SIZE_UINT16):
-                echo_reply = Frame(1, Frame.txt_frame, payload_context, parsed_msg.rsv1, parsed_msg.rsv2, parsed_msg.rsv3)
-                self.conn.send(echo_reply.toFrame())
-              else:
-                sent_ct = 0; payload_context_len = len(payload_context)
-                while (sent_ct < payload_context_len):
-                  if (sent_ct == 0):
-                    echo_reply = Frame(0, Frame.txt_frame, payload_context[:Frame.SIZE_UINT16])
-                    sent_ct += Frame.SIZE_UINT16
-                  elif (sent_ct + Frame.SIZE_UINT16 <= payload_context_len):
-                    echo_reply = Frame(0, Frame.con_frame, payload_context[sent_ct:sent_ct+Frame.SIZE_UINT16])
-                    sent_ct += Frame.SIZE_UINT16
-                  else:
-                    echo_reply = Frame(1, Frame.con_frame, payload_context[sent_ct:sent_ct+Frame.SIZE_UINT16])
-                    sent_ct = payload_context_len
-                  
-                  self.conn.send(echo_reply.toFrame)
+              echo_reply = Frame(1, Frame.txt_frame, payload_context, parsed_msg.rsv1, parsed_msg.rsv2, parsed_msg.rsv3)
+              self.conn.send(echo_reply.toFrame())
               
               payload_context = ''
+              context = COMMAND_CONTEXT.NONE
             elif (context == COMMAND_CONTEXT.SUBMISSION):
-              filename = 'readme.zip'
+              filename = 'ok_boomer.zip'
               fp = open(filename, "rb")
 
               file_size = os.path.getsize(filename)
@@ -112,21 +94,54 @@ class WebsocketConnection(threading.Thread):
                 self.conn.send(framed_msg.toFrame())
 
               fp.close()
-            elif (context == COMMAND_CONTEXT.CHECK):
-              filename = 'readme.zip'
-              fp = open(filename, "rb")
-              checksum = md5(fp.read()).hexdigest()
-              
-              answer = '1' if (checksum == payload_context) else '0'
-              check_msg = Frame(1, Frame.txt_frame, answer)
-              self.conn.send(check_msg.toFrame())
 
-              payload_context = ''
-
-            context = COMMAND_CONTEXT.NONE
           else: # not final message
             if (COMMAND_CONTEXT.ECHO):
               payload_context += payload
+        elif (parsed_msg.opcode == Frame.bin_frame):
+          if (parsed_msg.FIN == 1):  #first and last message
+            if (context == COMMAND_CONTEXT.SUBMISSION):
+              
+              checksum = md5(payload).hexdigest()
+
+              answer = '1' if (checksum == SUBMISSION_CHECKSUM) else '0'
+              check_msg = Frame(1, Frame.txt_frame, answer)
+              self.conn.send(check_msg.toFrame())
+
+              context = COMMAND_CONTEXT.NONE
+          else:
+            payload_context = payload
+        elif (parsed_msg.opcode == Frame.con_frame):
+          if (context == COMMAND_CONTEXT.ECHO and parsed_msg.FIN == 1):
+            sent_ct = 0; payload_context_len = len(payload_context)
+            while (sent_ct < payload_context_len):
+              if (sent_ct == 0):
+                echo_reply = Frame(0, Frame.txt_frame, payload_context[:Frame.SIZE_UINT16])
+                sent_ct += Frame.SIZE_UINT16
+              elif (sent_ct + Frame.SIZE_UINT16 <= payload_context_len):
+                echo_reply = Frame(0, Frame.con_frame, payload_context[sent_ct:sent_ct+Frame.SIZE_UINT16])
+                sent_ct += Frame.SIZE_UINT16
+              else:
+                echo_reply = Frame(1, Frame.con_frame, payload_context[sent_ct:sent_ct+Frame.SIZE_UINT16])
+                sent_ct = payload_context_len
+              
+              self.conn.send(echo_reply.toFrame)
+            payload_context = ''
+            context = COMMAND_CONTEXT.NONE
+          elif (context == COMMAND_CONTEXT.ECHO and parsed_msg.FIN == 0):
+            payload_context += payload
+          elif (context == COMMAND_CONTEXT.SUBMISSION and parsed_msg.FIN == 1):
+            checksum = md5(payload_context).hexdigest()
+
+            answer = '1' if (checksum == SUBMISSION_CHECKSUM) else '0'
+            check_msg = Frame(1, Frame.txt_frame, answer)
+            self.conn.send(check_msg.toFrame())
+
+            payload_context = ''
+            context = COMMAND_CONTEXT.NONE
+          elif (context == COMMAND_CONTEXT.SUBMISSION and parsed_msg.FIN == 0):
+            payload_context += payload
+
   
   def connection_failed(self):
     self.conn.close()

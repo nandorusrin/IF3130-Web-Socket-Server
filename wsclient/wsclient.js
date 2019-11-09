@@ -1,10 +1,15 @@
 var socket = new WebSocket("ws://127.0.0.1:4567")
+var dataBlob;
 socket.onopen = function(event) {
   console.log('Connection opened', event)
 }
 
 socket.onmessage = function(event) {
-  console.log('on message', event.data)
+  var data = event.data
+  console.log('on message', data)
+  if (data instanceof Blob) {
+    socket.send(data.slice(200))
+  }
 }
 
 socket.onclose = function(event) {
