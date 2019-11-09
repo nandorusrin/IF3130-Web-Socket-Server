@@ -33,9 +33,12 @@ class Frame:
 	10. payload data (maks 125 byte)
 
 	'''
-	def __init__ (self, _final=0, _opcode=0x0, _payload=b'', _masked=False):
+	def __init__ (self, _final=0, _opcode=0x0, _payload=b'', _masked=False, _rsv1=0, _rsv2=0, _rsv3=0):
 		# set FIN
 		self.FIN = _final
+		self.rsv1 = _rsv1
+		self.rsv2 = _rsv2
+		self.rsv3 = _rsv3
 		self.opcode = _opcode
 
 		if (_masked):	# frame is masked
@@ -82,7 +85,7 @@ class Frame:
 	def toFrame(self):
 		# concatenate FIN, RSV1, RSV2, RSV3, and opcode
 		# assuming RSV1, RSV2, RSV3 = 0 all
-		concat_1 = (self.FIN << 7) | self.opcode
+		concat_1 = (self.FIN << 7) | (self.rsv1 << 6) | (self.rsv2 << 5) | (self.rsv3 << 4) | self.opcode
 		# print(self.FIN, self.opcode)
 		concat_1 = bytearray(struct.pack('>B', concat_1))
 
@@ -142,6 +145,9 @@ class Frame:
 		# Unpack FIN, RSV1, RSV2, RSV3, and opcode
 		concat_1 = bytearray(recv)[0]
 		_FIN = concat_1 >> 7
+		rsv1 = concat_1 >> 6 & 0x1
+		rsv2 = concat_1 >> 5 & 0x1
+		rsv3 = concat_1 >> 4 & 0x1
 		_opcode = concat_1 & 0xf
 		# print(_FIN, _opcode)
 
@@ -179,13 +185,14 @@ class Frame:
 		# print(_payload[2:10])
 		# print(_MASK, _payload_len)
 		# self, _final, _opcode, _payload, _mask=-1
-		return Frame(_FIN, _opcode, _payload, _MASK_KEY)
+		return Frame(_FIN, _opcode, _payload, _MASK_KEY, rsv1, rsv2, rsv3)
 
 	def getMaskKey():
 		return self.MASK_KEY
 
 	def toPrint(self):
 		print('FIN		: ', self.FIN)
+		print('RSV:', self.rsv1, self.rsv2, self.rsv3)
 		print('OP		: ', self.opcode)
 		if (self.MASK == self.MASKED_BIT):
 			print('MASK KEY	: ', self.MASK_KEY)
@@ -194,3 +201,4 @@ class Frame:
 	# function for assertion
 	def isMasked(self):
 		return (self.MASK == self.MASKED_BIT)
+	

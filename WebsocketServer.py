@@ -1,42 +1,131 @@
 import socket
 import re
-from hashlib import sha1
+import threading
+import time
+import struct
+import os
+from hashlib import sha1, md5
 from base64 import b64encode
 from frame import Frame
 
 MAX_DATA_SIZE = 1024
 WS_MAGIC_STRING = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
-class WebsocketConnection:
+class COMMAND_CONTEXT:
+  NONE = 0
+  ECHO = 1
+  SUBMISSION = 2
+  CHECK = 3
+
+class WebsocketConnection(threading.Thread):
   def __init__(self, conn):
+    threading.Thread.__init__(self)
     self.conn = conn
     self.hostaddr, self.port = self.conn.getpeername()
 
+  # thread run
+  def run(self):
     header, body = self.get_parse_first_request()
     if (self.validate_opening(header)):
       parsed_header = self.parse_header(header)
-      print(parsed_header)
       self.send_handshake(parsed_header)
       self.maintain_communication()
     else:
-      print('sending 400')
       self.send_400()
-      self.connection_failed()
+    
+    # close tcp connection
+    self.conn.close()
   
   def maintain_communication(self):
-    # while(True):
-    message = self.conn.recv(MAX_DATA_SIZE)
-    parsed_msg = Frame.toUnframe(message)
-    parsed_msg.toPrint()
-    print(parsed_msg.getPayload())
+    recv_fragment = False
+    context = COMMAND_CONTEXT.NONE
+    payload_context = ''
+    while(True):
+      message = self.conn.recv(Frame.SIZE_UINT16)
+      parsed_msg = Frame.toUnframe(message)
 
-    # send dummy
-    dummy_payload = 'Data from server'
-    objFrame = Frame(1, Frame.txt_frame, dummy_payload, _masked=False)
-    ret = self.conn.send(objFrame.toFrame())
-    print('ret sent', ret)
-    while (True):
-      pass
+      if (parsed_msg.opcode == Frame.cls_frame):
+        # respond to CLOSE control frame
+        close_msg = Frame(1, Frame.cls_frame, struct.pack('!H', 1000))
+        self.conn.send(close_msg.toFrame())
+        break
+      elif (parsed_msg.opcode == Frame.ping_frame):
+        # respond to PING control frame
+        pong_msg = Frame(1, Frame.pong_frame, b'', False, parsed_msg.rsv1, parsed_msg.rsv2, parsed_msg.rsv3)
+        self.conn.send(pong_msg.toFrame())
+      else:
+        if (parsed_msg.opcode == Frame.txt_frame): # accept new message
+          payload = parsed_msg.getPayload()
+
+          if (payload[0] == '!'): # getting first command message
+            if (payload[:5] == '!echo'):
+              context = COMMAND_CONTEXT.ECHO
+              payload_context += payload[6:]
+            elif (payload[:11] == '!submission'):
+              context = COMMAND_CONTEXT.SUBMISSION
+            elif (payload[:6] == '!check'):
+              context = COMMAND_CONTEXT.CHECK
+              payload_context += payload[7:]
+
+          if (parsed_msg.FIN == 1): # is the final message
+            # execute & send reply based on command
+            if (context == COMMAND_CONTEXT.ECHO):
+              echo_reply = ''
+              if (len(payload_context) <= Frame.SIZE_UINT16):
+                echo_reply = Frame(1, Frame.txt_frame, payload_context, parsed_msg.rsv1, parsed_msg.rsv2, parsed_msg.rsv3)
+                self.conn.send(echo_reply.toFrame())
+              else:
+                sent_ct = 0; payload_context_len = len(payload_context)
+                while (sent_ct < payload_context_len):
+                  if (sent_ct == 0):
+                    echo_reply = Frame(0, Frame.txt_frame, payload_context[:Frame.SIZE_UINT16])
+                    sent_ct += Frame.SIZE_UINT16
+                  elif (sent_ct + Frame.SIZE_UINT16 <= payload_context_len):
+                    echo_reply = Frame(0, Frame.con_frame, payload_context[sent_ct:sent_ct+Frame.SIZE_UINT16])
+                    sent_ct += Frame.SIZE_UINT16
+                  else:
+                    echo_reply = Frame(1, Frame.con_frame, payload_context[sent_ct:sent_ct+Frame.SIZE_UINT16])
+                    sent_ct = payload_context_len
+                  
+                  self.conn.send(echo_reply.toFrame)
+              
+              payload_context = ''
+            elif (context == COMMAND_CONTEXT.SUBMISSION):
+              filename = 'readme.zip'
+              fp = open(filename, "rb")
+
+              file_size = os.path.getsize(filename)
+              sent_ct = 0
+              framed_msg = ''
+              while (sent_ct < file_size):
+                raw_bin = fp.read(Frame.SIZE_UINT16);
+                if (sent_ct == 0):
+                  final = 1 if len(raw_bin) >= file_size else 0
+
+                  framed_msg = Frame(final, Frame.bin_frame, raw_bin)
+                elif (sent_ct < file_size):
+                  framed_msg = Frame(0, Frame.con_frame, raw_bin)
+                else: # last message
+                  framed_msg = Frame(1, Frame.con_frame, raw_bin)
+                sent_ct += Frame.SIZE_UINT16
+                self.conn.send(framed_msg.toFrame())
+
+              fp.close()
+            elif (context == COMMAND_CONTEXT.CHECK):
+              filename = 'readme.zip'
+              fp = open(filename, "rb")
+              checksum = md5(fp.read()).hexdigest()
+              
+              answer = '1' if (checksum == payload_context) else '0'
+              check_msg = Frame(1, Frame.txt_frame, answer)
+              self.conn.send(check_msg.toFrame())
+
+              payload_context = ''
+
+            context = COMMAND_CONTEXT.NONE
+          else: # not final message
+            if (COMMAND_CONTEXT.ECHO):
+              payload_context += payload
   
   def connection_failed(self):
     self.conn.close()
@@ -137,8 +226,11 @@ class WebsocketServer:
     print('Server started on ', self.host, ':', self.port, sep='')
 
   def accept_connection(self):
-    conn, addr = self.socket.accept()
-    ws_conn = WebsocketConnection(conn)
+    thread_list = []
+    while (True):
+      conn, addr = self.socket.accept()
+      ws_conn = WebsocketConnection(conn)
+      ws_conn.start()
 
 def main():
   ws_server = WebsocketServer()
