@@ -36,11 +36,11 @@ class WebsocketConnection(threading.Thread):
         try:
           self.maintain_communication()
         except WSException as err:
-          exception_msg = ''
-          if (err.code == WSException.PROTOCOL_ERROR):
+          print('Exception', err.code, err.message)
+          if (err.code in [WSException.PROTOCOL_ERROR, WSException.UNCONSISTENT_TYPE_ERROR]):
             exception_msg = Frame(1, Frame.cls_frame, struct.pack('!H', err.code) + (err.message).encode())
+            self.conn.send(exception_msg.toFrame())
           
-          self.conn.send(exception_msg.toFrame())
     else:
       self.send_400()
     
@@ -48,14 +48,32 @@ class WebsocketConnection(threading.Thread):
     self.conn.close()
   
   def maintain_communication(self):
-    recv_fragment = False
     context = COMMAND_CONTEXT.NONE
     payload_context = ''
     while(True):
-      message = self.conn.recv(Frame.SIZE_UINT16)
+      message = self.conn.recv(2147483633 + 14)
       if (len(message) == 0):
         raise WSException(WSException.CONNECTION_CLOSED)
-      parsed_msg = Frame.toUnframe(message)
+      
+      try:
+        parsed_msg, need_more = Frame.toUnframe(message)
+      except:
+        raise WSException(WSException.PROTOCOL_ERROR, "Error while parsing frame")
+      curr_recv = parsed_msg.payload_len
+      while (curr_recv < need_more):
+        another_message = self.conn.recv(need_more - curr_recv)
+        if (len(another_message) == 0):
+          raise WSException(WSException.CONNECTION_CLOSED)
+
+        another_message = Frame.toUnmask(parsed_msg.getMaskKey(), another_message)
+        
+        if (context == COMMAND_CONTEXT.ECHO or parsed_msg.opcode == Frame.txt_frame):
+          another_message = another_message.decode()
+        else:
+          another_message = bytearray(another_message)
+        
+        parsed_msg.concatPayload(another_message)
+        curr_recv += len(another_message)
 
       if (parsed_msg.opcode == Frame.cls_frame):
         # respond to CLOSE control frame
@@ -63,12 +81,16 @@ class WebsocketConnection(threading.Thread):
         self.conn.send(close_msg.toFrame())
         break
       elif (parsed_msg.opcode == Frame.ping_frame):
+        if (parsed_msg.FIN != 1):
+          raise WSException(WSException.PROTOCOL_ERROR, 'received fragmented control frame')
         # respond to PING control frame
-        pong_msg = Frame(1, Frame.pong_frame, b'', False, parsed_msg.rsv1, parsed_msg.rsv2, parsed_msg.rsv3)
+        pong_msg = Frame(1, Frame.pong_frame, b'', False)
         self.conn.send(pong_msg.toFrame())
       else:
         payload = parsed_msg.getPayload()
         if (parsed_msg.opcode == Frame.txt_frame): # accept new text message
+          # if (context == COMMAND_CONTEXT.SUBMISSION):
+          #   raise WSException(WSException.UNCONSISTENT_TYPE_ERROR, 'another text frame interleaved with current context')
           if (payload[0] == '!'): # getting first command message
             if (payload[:5] == '!echo'):
               context = COMMAND_CONTEXT.ECHO
@@ -79,7 +101,7 @@ class WebsocketConnection(threading.Thread):
           if (parsed_msg.FIN == 1): # first and last message
             # execute & send reply based on command
             if (context == COMMAND_CONTEXT.ECHO):
-              echo_reply = Frame(1, Frame.txt_frame, payload_context, parsed_msg.rsv1, parsed_msg.rsv2, parsed_msg.rsv3)
+              echo_reply = Frame(1, Frame.txt_frame, payload_context)
               self.conn.send(echo_reply.toFrame())
               
               payload_context = ''
@@ -110,6 +132,8 @@ class WebsocketConnection(threading.Thread):
             if (COMMAND_CONTEXT.ECHO):
               payload_context += payload
         elif (parsed_msg.opcode == Frame.bin_frame):
+          # if (context != COMMAND_CONTEXT.SUBMISSION):
+          #   raise WSException(WSException.UNCONSISTENT_TYPE_ERROR, 'another bin frame interleaved with current context')
           if (parsed_msg.FIN == 1):  #first and last message
             if (context == COMMAND_CONTEXT.SUBMISSION):
               
@@ -124,6 +148,12 @@ class WebsocketConnection(threading.Thread):
             payload_context = payload
         elif (parsed_msg.opcode == Frame.con_frame):
           if (context == COMMAND_CONTEXT.ECHO and parsed_msg.FIN == 1):
+            try:
+              payload = payload.decode()
+            except:
+              raise WSException(WSException.UNCONSISTENT_TYPE_ERROR, 'getting binary payload instead of text')
+
+            payload_context += payload
             sent_ct = 0; payload_context_len = len(payload_context)
             while (sent_ct < payload_context_len):
               if (sent_ct == 0):
@@ -142,6 +172,7 @@ class WebsocketConnection(threading.Thread):
           elif (context == COMMAND_CONTEXT.ECHO and parsed_msg.FIN == 0):
             payload_context += payload
           elif (context == COMMAND_CONTEXT.SUBMISSION and parsed_msg.FIN == 1):
+            payload_context += payload
             checksum = md5(payload_context).hexdigest()
 
             answer = '1' if (checksum == SUBMISSION_CHECKSUM) else '0'
@@ -232,7 +263,7 @@ class WebsocketConnection(threading.Thread):
         header_check[3] = True
       elif (re.match(r'Host: [\.\w\:]+', line)):
         header_check[4] = True
-      elif (re.match(r'Sec-WebSocket-Key: [A-Za-z0-9\+\-]{22}\=\=', line)):
+      elif (re.match(r'Sec-WebSocket-Key: [A-Za-z0-9\+\-\\\.\~\/]{22}\=\=', line)):
         header_check[5] = True
     
     return all(header_check)
@@ -251,8 +282,11 @@ class WebsocketServer:
 
   def accept_connection(self):
     thread_list = []
+    ct = 0
     while (True):
       conn, addr = self.socket.accept()
+      ct += 1
+      print('a connection establised')
       ws_conn = WebsocketConnection(conn)
       ws_conn.start()
 

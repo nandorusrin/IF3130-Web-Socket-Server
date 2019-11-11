@@ -6,7 +6,7 @@ OK Boomer!
 `python WebsocketServer.py <host> <port>`
 ```
 Contoh:
-python WebsocketServer.py 127.0.0.1 4567
+python3 WebsocketServer.py 127.0.0.1 8000
 ```
 2. Jalankan Ngrok untuk Websocket
 ```

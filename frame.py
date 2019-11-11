@@ -19,7 +19,7 @@ class Frame:
 
 	#MAX UINT
 	SIZE_UINT16 = 65535
-	SIZE_UINT64 = 18446744073709551615
+	SIZE_UINT64 = 9223372036854775808
 
 	'''
 	Atribut Kelas
@@ -45,7 +45,6 @@ class Frame:
 
 		if (_masked):	# frame is masked
 			self.MASK = self.MASKED_BIT
-			self.MASK_KEY = random.getrandbits(32)
 		else:	# frame is not masked
 			self.MASK = self.UNMASKED_BIT
 
@@ -153,7 +152,7 @@ class Frame:
 		rsv2 = concat_1 >> 5 & 0x1
 		rsv3 = concat_1 >> 4 & 0x1
 		if (rsv1 == 1 or rsv2 == 1 or rsv3 == 1):
-			raise WSException(WSException.PROTOCOL_ERROR, "One or more reserved bytes set to 1")
+			raise WSException(WSException.PROTOCOL_ERROR, "One or more reserved bytes set to 1 from unframe")
 		_opcode = concat_1 & 0xf
 		if (_opcode not in [Frame.con_frame, Frame.txt_frame, Frame.bin_frame, Frame.cls_frame, Frame.ping_frame, Frame.pong_frame]):
 			raise WSException(WSException.PROTOCOL_ERROR, "opcode invalid")
@@ -168,20 +167,31 @@ class Frame:
 		appendedBase = 2
 		# looking for extended payload len
 		if (_payload_len == 126):
-			_payload_len = (struct.unpack('>H', bytearray(recv[2:4])))[0]
+			_payload_len = (struct.unpack('!H', bytearray(recv[2:4])))[0]
 			appendedBase = 4
 
 		elif (_payload_len == 127):
 			_payload_len = (struct.unpack('>Q', bytearray(recv[2:10])))[0]
 			appendedBase = 10
+		
+		if (_payload_len < 0):
+			raise WSException(WSException.PROTOCOL_ERROR, "invalid payload length")
 
 		# Unpack the MASK KEY and Payload
 		_MASK_KEY = -1
 		if (_MASK == Frame.MASKED_BIT):
 			_MASK_KEY = (struct.unpack('>I', bytearray(recv[appendedBase : appendedBase + 4])))[0]
 			appendedBase += 4
-
-		_payload = recv[appendedBase : appendedBase + _payload_len]
+		else:
+			raise WSException(WSException.PROTOCOL_ERROR, "Getting unmasked message")
+		
+		need_more_recv = 0
+		if (len(recv) - appendedBase > _payload_len):
+			# raise WSException(WSException.PROTOCOL_ERROR, 'Payload_len not consistent with actual payload length')
+			pass
+		elif (len(recv) - appendedBase < _payload_len):
+			need_more_recv = _payload_len
+		_payload = recv[appendedBase:appendedBase+_payload_len]
 
 		if (_MASK == Frame.MASKED_BIT):
 			_payload = Frame.toUnmask(_MASK_KEY, _payload)
@@ -189,15 +199,21 @@ class Frame:
 		if (_opcode == Frame.txt_frame):
 			_payload = _payload.decode(encoding='UTF-8', errors='strict')
 		else:
-			_payload = bytes(_payload)
+			_payload = bytearray(_payload)
 
 		# print(_payload[2:10])
 		# print(_MASK, _payload_len)
 		# self, _final, _opcode, _payload, _mask=-1
-		return Frame(_FIN, _opcode, _payload, _MASK_KEY, rsv1, rsv2, rsv3) 
+		ret_frame = Frame(_FIN, _opcode, _payload, _MASK == Frame.MASKED_BIT, rsv1, rsv2, rsv3)
+		if (_MASK == Frame.MASKED_BIT):
+			ret_frame.setMaskKey(_MASK_KEY)
+		return ret_frame, need_more_recv
 
-	def getMaskKey():
+	def getMaskKey(self):
 		return self.MASK_KEY
+	
+	def setMaskKey(self, _mask_key):
+		self.MASK_KEY = _mask_key
 
 	def toPrint(self):
 		print('FIN		: ', self.FIN)
@@ -210,4 +226,8 @@ class Frame:
 	# function for assertion
 	def isMasked(self):
 		return (self.MASK == self.MASKED_BIT)
+
+	def concatPayload(self, _payload):
+		self.payload += _payload
+		self.payload_len += len(_payload)
 	
