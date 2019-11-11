@@ -1,4 +1,5 @@
-var socket = new WebSocket("ws://e9295051.ngrok.io")
+var socket = new WebSocket("ws://fcad9774.ngrok.io")
+// var socket = new WebSocket("ws://127.0.0.1:4567")
 var dataBlob;
 socket.onopen = function(event) {
   console.log('Connection opened', event)

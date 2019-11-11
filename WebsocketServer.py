@@ -9,6 +9,8 @@ from hashlib import sha1, md5
 from base64 import b64encode
 from frame import Frame
 
+from WebsocketException import WSException
+
 MAX_DATA_SIZE = 1024
 WS_MAGIC_STRING = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 SUBMISSION_CHECKSUM = md5(open('ok_boomer.zip', "rb").read()).hexdigest()
@@ -30,8 +32,15 @@ class WebsocketConnection(threading.Thread):
     header, body = self.get_parse_first_request()
     if (self.validate_opening(header)):
       parsed_header = self.parse_header(header)
-      self.send_handshake(parsed_header)
-      self.maintain_communication()
+      if(self.send_handshake(parsed_header) != 0):  # or else connection broken
+        try:
+          self.maintain_communication()
+        except WSException as err:
+          exception_msg = ''
+          if (err.code == WSException.PROTOCOL_ERROR):
+            exception_msg = Frame(1, Frame.cls_frame, struct.pack('!H', err.code) + (err.message).encode())
+          
+          self.conn.send(exception_msg.toFrame())
     else:
       self.send_400()
     
@@ -44,6 +53,8 @@ class WebsocketConnection(threading.Thread):
     payload_context = ''
     while(True):
       message = self.conn.recv(Frame.SIZE_UINT16)
+      if (len(message) == 0):
+        raise WSException(WSException.CONNECTION_CLOSED)
       parsed_msg = Frame.toUnframe(message)
 
       if (parsed_msg.opcode == Frame.cls_frame):
@@ -148,7 +159,7 @@ class WebsocketConnection(threading.Thread):
 
   def parse_header(self, header):
     parsed_header = {}
-    parsed_header['Endpoint'] = re.findall(r'GET (/[\w/]*) HTTP/1\.1', header[0])[0]
+    parsed_header['Endpoint'] = re.findall(r'GET (/[\w/]*) HTTP/[1\.1|2\.0|3\.0]', header[0])[0]
 
     fields = ['Host', 'Sec-WebSocket-Key', 'Origin', 'Sec-WebSocket-Protocol', 'Sec-WebSocket-Version']
 
@@ -175,7 +186,7 @@ class WebsocketConnection(threading.Thread):
     
     response += "\r\n"
 
-    self.conn.send(response.encode())
+    return (self.conn.send(response.encode()))
   
   def send_400(self):
     response = ("HTTP/1.1 400 Bad Request\r\n" +
@@ -209,25 +220,22 @@ class WebsocketConnection(threading.Thread):
     return (header, body)
   
   def validate_opening(self, header):
-    header_check = [False] * 4
+    header_check = [False] * 6
     for line in header:
-      if (re.match(r'GET /\w* HTTP/1\.1', line)):
+      if (re.match(r'GET /\w* HTTP/[1\.1|2\.0|3\.0]', line)):
         header_check[0] = True
       if (line == 'Upgrade: websocket'):
         header_check[1] = True
       elif (line == 'Connection: Upgrade'):
         header_check[2] = True
-      elif (re.match(r'Sec-WebSocket-Version: \d+', line)):
+      elif (re.match(r'Sec-WebSocket-Version: 13', line)):
         header_check[3] = True
+      elif (re.match(r'Host: [\.\w\:]+', line)):
+        header_check[4] = True
+      elif (re.match(r'Sec-WebSocket-Key: [A-Za-z0-9\+\-]{22}\=\=', line)):
+        header_check[5] = True
     
     return all(header_check)
-
-  def close_connection(self):
-    #  TODO: The server MUST close the connection upon receiving a
-    #  frame that is not masked
-    #   In this case, a server MAY send a Close
-    #  frame with a status code of 1002 (protocol error)
-    pass
 
 class WebsocketServer:
   def __init__(self, host, port):
@@ -249,14 +257,13 @@ class WebsocketServer:
       ws_conn.start()
 
 def main():
-  host = '127.0.0.1'; port = 4567
+  host = '127.0.0.1'; port = 8000
   if (len(sys.argv) >= 3):
     host = sys.argv[1]
     port = int(sys.argv[2])
   
   ws_server = WebsocketServer(host, port)
   ws_server.start_server()
-  while (True):
-    ws_server.accept_connection()
+  ws_server.accept_connection()
 
 main()

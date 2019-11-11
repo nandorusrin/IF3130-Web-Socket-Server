@@ -1,6 +1,8 @@
 import random
 import struct
 
+from WebsocketException import WSException
+
 class Frame:
 
 	# OPCODE : define the interpretation of Payload Data (4 bits)
@@ -129,7 +131,7 @@ class Frame:
 			concat_4 = self.toMask()
 			result += concat_4
 		else:
-			concat_4 =  self.payload
+			concat_4 = 	self.payload
 			# print(concat_4[2:10])
 			if (self.opcode == Frame.txt_frame):
 				concat_4 = concat_4.encode(encoding = 'UTF-8', errors='strict')
@@ -142,18 +144,25 @@ class Frame:
 
 	@staticmethod
 	def toUnframe(recv):
+		if (len(recv) < 6):
+			raise WSException(WSException.PROTOCOL_ERROR, "Minimum size has not been reached")
 		# Unpack FIN, RSV1, RSV2, RSV3, and opcode
 		concat_1 = bytearray(recv)[0]
 		_FIN = concat_1 >> 7
 		rsv1 = concat_1 >> 6 & 0x1
 		rsv2 = concat_1 >> 5 & 0x1
 		rsv3 = concat_1 >> 4 & 0x1
+		if (rsv1 == 1 or rsv2 == 1 or rsv3 == 1):
+			raise WSException(WSException.PROTOCOL_ERROR, "One or more reserved bytes set to 1")
 		_opcode = concat_1 & 0xf
-		# print(_FIN, _opcode)
+		if (_opcode not in [Frame.con_frame, Frame.txt_frame, Frame.bin_frame, Frame.cls_frame, Frame.ping_frame, Frame.pong_frame]):
+			raise WSException(WSException.PROTOCOL_ERROR, "opcode invalid")
 
 		# Unpack MASK and Payload_len
 		concat_2 = bytearray(recv)[1]
 		_MASK = concat_2 >> 7
+		if (_MASK != 1):
+			raise WSException(WSException.PROTOCOL_ERROR, "Frame is not masked")
 		_payload_len = concat_2 & 127
 
 		appendedBase = 2
@@ -185,7 +194,7 @@ class Frame:
 		# print(_payload[2:10])
 		# print(_MASK, _payload_len)
 		# self, _final, _opcode, _payload, _mask=-1
-		return Frame(_FIN, _opcode, _payload, _MASK_KEY, rsv1, rsv2, rsv3)
+		return Frame(_FIN, _opcode, _payload, _MASK_KEY, rsv1, rsv2, rsv3) 
 
 	def getMaskKey():
 		return self.MASK_KEY
