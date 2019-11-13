@@ -85,9 +85,7 @@ class Frame:
 
 	def toFrame(self):
 		# concatenate FIN, RSV1, RSV2, RSV3, and opcode
-		# assuming RSV1, RSV2, RSV3 = 0 all
 		concat_1 = (self.FIN << 7) | (self.rsv1 << 6) | (self.rsv2 << 5) | (self.rsv3 << 4) | self.opcode
-		# print(self.FIN, self.opcode)
 		concat_1 = bytearray(struct.pack('>B', concat_1))
 
 		result = concat_1
@@ -98,19 +96,16 @@ class Frame:
 
 		if (self.payload_len >= 0 and self.payload_len <= 125):
 			concat_2 = concat_2 | self.payload_len
-			# print(self.MASK, self.payload_len)
 			concat_2 = bytearray(struct.pack('>B', concat_2))
 
 		elif (self.payload_len <= Frame.SIZE_UINT16):
 			concat_2 = concat_2 | 0x7e
-			# print(self.MASK, self.payload_len)
 			concat_2 = bytearray(struct.pack('>B', concat_2))
 			concat_2_ext = bytearray(struct.pack('>H', self.payload_len))
 			concat_2 = concat_2 + concat_2_ext
 
 		elif (self.payload_len <= Frame.SIZE_UINT64):
 			concat_2 = concat_2 | 0x7f
-			# print(self.MASK, self.payload_len)
 			concat_2 = bytearray(struct.pack('>B', concat_2))
 			concat_2_ext = bytearray(struct.pack('>Q', self.payload_len))
 			concat_2 = concat_2 + concat_2_ext
@@ -120,7 +115,6 @@ class Frame:
 		# packing MASK_KEY
 		if (self.MASK == self.MASKED_BIT):
 			concat_3 = struct.pack('>I', self.MASK_KEY)
-			# print('concat 3 : ', self.MASK_KEY)
 			concat_3 = bytearray(concat_3)
 
 			result += concat_3
@@ -131,7 +125,6 @@ class Frame:
 			result += concat_4
 		else:
 			concat_4 = 	self.payload
-			# print(concat_4[2:10])
 			if (self.opcode == Frame.txt_frame):
 				concat_4 = concat_4.encode(encoding = 'UTF-8', errors='strict')
 			result += concat_4
@@ -186,10 +179,7 @@ class Frame:
 			raise WSException(WSException.PROTOCOL_ERROR, "Getting unmasked message")
 		
 		need_more_recv = 0
-		if (len(recv) - appendedBase > _payload_len):
-			# raise WSException(WSException.PROTOCOL_ERROR, 'Payload_len not consistent with actual payload length')
-			pass
-		elif (len(recv) - appendedBase < _payload_len):
+		if (len(recv) - appendedBase < _payload_len):
 			need_more_recv = _payload_len
 		_payload = recv[appendedBase:appendedBase+_payload_len]
 
@@ -201,9 +191,6 @@ class Frame:
 		else:
 			_payload = bytearray(_payload)
 
-		# print(_payload[2:10])
-		# print(_MASK, _payload_len)
-		# self, _final, _opcode, _payload, _mask=-1
 		ret_frame = Frame(_FIN, _opcode, _payload, _MASK == Frame.MASKED_BIT, rsv1, rsv2, rsv3)
 		if (_MASK == Frame.MASKED_BIT):
 			ret_frame.setMaskKey(_MASK_KEY)
@@ -222,10 +209,6 @@ class Frame:
 		if (self.MASK == self.MASKED_BIT):
 			print('MASK KEY	: ', self.MASK_KEY)
 		print('LEN		: ', self.payload_len)
-
-	# function for assertion
-	def isMasked(self):
-		return (self.MASK == self.MASKED_BIT)
 
 	def concatPayload(self, _payload):
 		self.payload += _payload
